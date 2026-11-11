@@ -10,6 +10,7 @@ SYSTEM = (
     "Ты — опытный преподаватель французского для русскоговорящих взрослых, живущих во Франции. "
     "Объяснения пиши по-русски, коротко и понятно. Французский — естественный, современный, "
     "как говорят во Франции сегодня. Строго соблюдай уровень CEFR ученика. "
+    "Пиши компактно: каждое поле — 1–3 предложения. "
     "Отвечай ТОЛЬКО одним JSON-объектом, без пояснений и без ```."
 )
 
@@ -85,14 +86,22 @@ def validate(kind: str, d: dict) -> dict:
     return d
 
 
-async def ask(prompt: str, max_tokens: int = 900) -> dict:
+async def ask(prompt: str, max_tokens: int = 3000) -> dict:
     msg = await client().messages.create(
         model=MODEL,
         max_tokens=max_tokens,
         system=SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
-    return parse_json("".join(b.text for b in msg.content if b.type == "text"))
+    text = "".join(b.text for b in msg.content if b.type == "text")
+    try:
+        return parse_json(text)
+    except Exception:
+        logging.warning("Ответ ИИ не разобран (stop_reason=%s, %d симв.): %s",
+                        msg.stop_reason, len(text), text[:300].replace("\n", " "))
+        if msg.stop_reason == "max_tokens":
+            raise ValueError("ответ ИИ оборвался")
+        raise
 
 
 async def make_task(kind: str, level: str, topics: str, avoid: list[str]) -> dict:
@@ -104,7 +113,7 @@ async def make_task(kind: str, level: str, topics: str, avoid: list[str]) -> dic
         f"Формат ответа:\n{SCHEMAS[kind]}"
     )
     last_err = None
-    for _ in range(2):  # одна повторная попытка, если JSON кривой
+    for _ in range(3):  # повторяем, если JSON кривой
         try:
             return validate(kind, await ask(prompt))
         except Exception as e:  # noqa: BLE001
@@ -120,7 +129,7 @@ async def check_writing(level: str, task: dict, answer: str) -> dict:
         f"Ответ ученика: «{answer}»\n"
         f"Проверь доброжелательно, оценивай с учётом уровня. Формат:\n{CHECK_SCHEMA}"
     )
-    d = await ask(prompt, max_tokens=1200)
+    d = await ask(prompt, max_tokens=4000)
     d["score"] = max(0, min(10, int(d.get("score", 0))))
     d.setdefault("errors", [])
     return d
