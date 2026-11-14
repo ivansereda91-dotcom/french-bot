@@ -21,8 +21,18 @@ def today() -> date:
     return now().date()
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """`with connect() as c:` — коммит и сразу закрытие соединения (иначе копятся открытые файлы)."""
+
+    def __exit__(self, *exc):
+        try:
+            return super().__exit__(*exc)
+        finally:
+            self.close()
+
+
 def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, factory=_ClosingConnection)
     conn.row_factory = sqlite3.Row
     return conn
 
